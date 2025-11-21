@@ -7,6 +7,5 @@ pyyaml
 semantic-kernel==0.4.2.dev0
 azure.identity==1.17.1
 requests==2.32.3
-
 openai==1.37.1
 pillow==10.4.0

@@ -1,9 +1,12 @@
 from fastapi import APIRouter, Request, status
 from fastapi.responses import JSONResponse
 from typing import Any, List, Dict
-import json
 import os
-import requests  # Use requests for HTTP API calls
+import httpx  # Use httpx for async HTTP calls
+
+# URL of the internal DALL-E service (running in AKS)
+DALLE_SERVICE_URL = os.getenv("DALLE_SERVICE_URL", "http://dalle-service/generate-image")
+USE_AZURE_OPENAI = os.getenv("USE_AZURE_OPENAI", "True").lower() == "true"
 
 # Define the image API router
 image: APIRouter = APIRouter(prefix="/generate", tags=["generate"])
@@ -24,48 +27,49 @@ async def post_image(request: Request) -> JSONResponse:
         body: dict = await request.json()
         product: Product = Product(body)
         name: str = product.name
-        description: List = product.description
+        description: List[str] = product.description
 
-        print("Calling OpenAI")
-
-        # Fetch configuration from environment variables
-        api_version = os.getenv("AZURE_OPENAI_API_VERSION", "2024-02-01")
-        dalle_endpoint = os.getenv("AZURE_OPENAI_DALLE_ENDPOINT")
-        dalle_deployment_name = os.getenv(
-            "AZURE_OPENAI_DALLE_DEPLOYMENT_NAME", "dall-e-3"
-        )
-        api_key = os.getenv("OPENAI_DALLE_API_KEY")
-
-        # Construct the target URI
-        target_uri = f"{dalle_endpoint}openai/deployments/{dalle_deployment_name}/images/generations?api-version={api_version}"
-
-        if not dalle_endpoint or not api_key:
-            raise ValueError(
-                "Missing required environment variables: AZURE_OPENAI_DALLE_ENDPOINT or OPENAI_API_KEY"
+        if USE_AZURE_OPENAI:
+            # In this lab, we are not using Azure OpenAI anymore
+            return JSONResponse(
+                content={"error": "Azure OpenAI path is disabled in this lab setup."},
+                status_code=status.HTTP_400_BAD_REQUEST,
             )
 
-        # Set up the API request
-        headers = {"Content-Type": "application/json", "api-key": api_key}
-        payload = {
-            "model": "dall-e-3",
-            "prompt": f"Generate a cute photo realistic image of a product in its packaging in front of a plain background for a product called <{name}> with a description <{description}> to be sold in an online pet supply store",
-            "n": 1,
-        }
+        print("Calling internal dalle-service")
 
-        # Make the API call
-        response = requests.post(target_uri, headers=headers, json=payload)
-        response.raise_for_status()  # Raise an exception for HTTP errors
-
-        # Parse the response
-        result = response.json()
-        image_url = result["data"][0]["url"]
-
-        # Return the image as a JSON response
-        return JSONResponse(
-            content={"image": image_url}, status_code=status.HTTP_200_OK
+        # Build the prompt similar to the original one
+        prompt = (
+            "Generate a cute photo realistic image of a product in its packaging in front "
+            "of a plain background for a product called "
+            f"<{name}> with a description <{description}> to be sold in an online pet supply store"
         )
+
+        # Call the internal dalle-service (FastAPI service on AKS)
+        async with httpx.AsyncClient() as client:
+            response = await client.post(
+                DALLE_SERVICE_URL,
+                json={
+                    "prompt": prompt,
+                    "n": 1,
+                    "size": "512x512",
+                },
+                timeout=60,
+            )
+            response.raise_for_status()
+            data = response.json()  # expected: { "urls": ["..."] }
+
+        image_url = data["urls"][0]
+
+        # Return the image as a JSON response (same key as before: "image")
+        return JSONResponse(
+            content={"image": image_url},
+            status_code=status.HTTP_200_OK,
+        )
+
     except Exception as e:
         # Return an error message as a JSON response
         return JSONResponse(
-            content={"error": str(e)}, status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            content={"error": str(e)},
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
         )
