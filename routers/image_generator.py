@@ -52,7 +52,7 @@ async def post_image(request: Request) -> JSONResponse:
                 json={
                     "prompt": prompt,
                     "n": 1,
-                    "size": "512x512",
+                    "size": "1024x1024",
                 },
                 timeout=60,
             )
