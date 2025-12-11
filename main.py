@@ -33,3 +33,4 @@ async def get_health():
         content={"status": "ok", "version": app.version, "capabilities": capabilities},
         status_code=status.HTTP_200_OK
     )
+
